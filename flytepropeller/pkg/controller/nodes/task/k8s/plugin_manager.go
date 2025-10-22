@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/flyteorg/flyte/flyteidl/gen/pb-go/flyteidl/core"
@@ -627,10 +628,10 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 	src := source.Kind(iCtx.KubeClient().GetCache(), entry.ResourceToWatch,
 		// Handlers
 		handler.Funcs{
-			CreateFunc: func(ctx context.Context, evt event.CreateEvent, q2 workqueue.RateLimitingInterface) {
+			CreateFunc: func(ctx context.Context, evt event.CreateEvent, q2 workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 				logger.Debugf(context.Background(), "Create received for %s, ignoring.", evt.Object.GetName())
 			},
-			UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q2 workqueue.RateLimitingInterface) {
+			UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q2 workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 				if evt.ObjectNew == nil {
 					logger.Warn(context.Background(), "Received an Update event with nil MetaNew.")
 				} else if evt.ObjectOld == nil || evt.ObjectOld.GetResourceVersion() != evt.ObjectNew.GetResourceVersion() {
@@ -655,10 +656,10 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 					droppedUpdateCount.Inc(newCtx)
 				}
 			},
-			DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q2 workqueue.RateLimitingInterface) {
+			DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q2 workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 				logger.Debugf(context.Background(), "Delete received for %s, ignoring.", evt.Object.GetName())
 			},
-			GenericFunc: func(ctx context.Context, evt event.GenericEvent, q2 workqueue.RateLimitingInterface) {
+			GenericFunc: func(ctx context.Context, evt event.GenericEvent, q2 workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 				logger.Debugf(context.Background(), "Generic received for %s, ignoring.", evt.Object.GetName())
 				genericCount.Inc(ctx)
 			},
@@ -684,9 +685,14 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 	err := src.Start(
 		ctx,
 		// Queue - configured for high throughput so we very infrequently rate limit node updates
-		workqueue.NewNamedRateLimitingQueue(&workqueue.BucketRateLimiter{
-			Limiter: rate.NewLimiter(rate.Limit(10000), 10000),
-		}, entry.ResourceToWatch.GetObjectKind().GroupVersionKind().Kind),
+		workqueue.NewTypedRateLimitingQueueWithConfig(
+			&workqueue.TypedBucketRateLimiter[reconcile.Request]{
+				Limiter: rate.NewLimiter(rate.Limit(10000), 10000),
+			},
+			workqueue.TypedRateLimitingQueueConfig[reconcile.Request]{
+				Name: entry.ResourceToWatch.GetObjectKind().GroupVersionKind().Kind,
+			},
+		),
 	)
 
 	if err != nil {

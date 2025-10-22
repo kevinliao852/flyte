@@ -113,11 +113,11 @@ func ReadSecureCookie(ctx context.Context, cookie http.Cookie, hashKey, blockKey
 }
 
 func NewCsrfToken(seed int64) string {
-	rand.Seed(seed)
+	r := rand.New(rand.NewSource(seed))
 	csrfToken := [10]rune{}
 	for i := 0; i < len(csrfToken); i++ {
 		/* #nosec */
-		csrfToken[i] = AllowedChars[rand.Intn(len(AllowedChars))]
+		csrfToken[i] = AllowedChars[r.Intn(len(AllowedChars))]
 	}
 	return string(csrfToken[:])
 }
