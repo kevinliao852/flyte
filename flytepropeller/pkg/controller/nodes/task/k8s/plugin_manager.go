@@ -602,8 +602,6 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 	}
 
 	logger.Infof(ctx, "Initializing K8s plugin [%s]", entry.ID)
-	src := source.Kind(iCtx.KubeClient().GetCache(), entry.ResourceToWatch)
-
 	workflowParentPredicate := func(o metav1.Object) bool {
 		if entry.Plugin.GetProperties().DisableInjectOwnerReferences {
 			return true
@@ -625,8 +623,8 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 	genericCount := labeled.NewCounter("informer_generic", "Generic events from informer", metricsScope)
 
 	enqueueOwner := iCtx.EnqueueOwner()
-	err := src.Start(
-		ctx,
+
+	src := source.Kind(iCtx.KubeClient().GetCache(), entry.ResourceToWatch,
 		// Handlers
 		handler.Funcs{
 			CreateFunc: func(ctx context.Context, evt event.CreateEvent, q2 workqueue.RateLimitingInterface) {
@@ -665,10 +663,6 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 				genericCount.Inc(ctx)
 			},
 		},
-		// Queue - configured for high throughput so we very infrequently rate limit node updates
-		workqueue.NewNamedRateLimitingQueue(&workqueue.BucketRateLimiter{
-			Limiter: rate.NewLimiter(rate.Limit(10000), 10000),
-		}, entry.ResourceToWatch.GetObjectKind().GroupVersionKind().Kind),
 		// Predicates
 		predicate.Funcs{
 			CreateFunc: func(createEvent event.CreateEvent) bool {
@@ -684,7 +678,16 @@ func NewPluginManager(ctx context.Context, iCtx pluginsCore.SetupContext, entry 
 			GenericFunc: func(genericEvent event.GenericEvent) bool {
 				return workflowParentPredicate(genericEvent.Object)
 			},
-		})
+		},
+	)
+
+	err := src.Start(
+		ctx,
+		// Queue - configured for high throughput so we very infrequently rate limit node updates
+		workqueue.NewNamedRateLimitingQueue(&workqueue.BucketRateLimiter{
+			Limiter: rate.NewLimiter(rate.Limit(10000), 10000),
+		}, entry.ResourceToWatch.GetObjectKind().GroupVersionKind().Kind),
+	)
 
 	if err != nil {
 		return nil, err

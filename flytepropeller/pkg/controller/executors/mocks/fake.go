@@ -15,6 +15,12 @@ import (
 type FakeInformers struct {
 }
 
+var _ cache.Cache = (*FakeInformers)(nil)
+
+func (f *FakeInformers) RemoveInformer(ctx context.Context, obj client.Object) error {
+	return nil
+}
+
 func (f *FakeInformers) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	return nil
 }
